@@ -1,0 +1,12 @@
+add_executable(vv_unit_animator unit/test_animator.cpp)
+target_link_libraries(vv_unit_animator PRIVATE vividvision_engine)
+add_test(NAME vv_unit_animator COMMAND vv_unit_animator)
+
+add_executable(vv_unit_weights unit/test_weights.cpp)
+target_link_libraries(vv_unit_weights PRIVATE vividvision_engine)
+add_test(NAME vv_unit_weights COMMAND vv_unit_weights)
+
+add_executable(vv_unit_import_hiphop unit/test_import_hiphop.cpp)
+target_link_libraries(vv_unit_import_hiphop PRIVATE vividvision_engine)
+add_test(NAME vv_unit_import_hiphop COMMAND vv_unit_import_hiphop)
+set_tests_properties(vv_unit_import_hiphop PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
