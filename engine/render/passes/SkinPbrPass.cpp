@@ -47,6 +47,16 @@ bool SupportsLinearBlit(VkPhysicalDevice physicalDevice, VkFormat format) {
          (features & VK_FORMAT_FEATURE_BLIT_DST_BIT) != 0;
 }
 
+float OutputColorLevelsForFormat(VkFormat format) {
+  switch (format) {
+    case VK_FORMAT_A2B10G10R10_UNORM_PACK32:
+    case VK_FORMAT_A2R10G10B10_UNORM_PACK32:
+      return 1023.0F;
+    default:
+      return 255.0F;
+  }
+}
+
 std::vector<float> BuildProceduralIblPixels(uint32_t width, uint32_t height) {
   std::vector<float> pixels(static_cast<size_t>(width) * static_cast<size_t>(height) * 4U, 1.0F);
 
@@ -1471,13 +1481,15 @@ void SkinPbrPass::UpdateFrameUbo(uint32_t frameIndex,
                                  const RenderScene& scene,
                                  const FrameContext& frameContext,
                                  uint32_t lightCount) {
+  elapsedSec_ += std::max(frameContext.deltaSec, 0.0F);
+
   FrameUbo ubo;
   ubo.view = frameContext.view;
   ubo.proj = frameContext.proj;
   ubo.lightViewProj = ComputeDirectionalShadowMatrix(scene);
   ubo.cameraPos = Vec4(frameContext.cameraPos, 1.0F);
-  ubo.lightMeta = Vec4(static_cast<float>(lightCount), 0.08F, 1.25F, 1.00F);
-  ubo.debugFlags = Vec4(frameContext.enableNormalMap, frameContext.enableSpecularIbl, 0.0F, 0.0F);
+  ubo.lightMeta = Vec4(static_cast<float>(lightCount), 0.12F, 1.18F, 1.22F);
+  ubo.debugFlags = Vec4(frameContext.enableNormalMap, frameContext.enableSpecularIbl, elapsedSec_, outputColorLevels_);
   ubo.shadowMeta = Vec4((scene.scene != nullptr) ? 1.0F : 0.0F, 0.0008F, 0.92F, 1.5F);
 
   std::memcpy(frameUboBuffers_[frameIndex].mapped, &ubo, sizeof(FrameUbo));
@@ -1582,6 +1594,7 @@ void SkinPbrPass::Initialize(VkPhysicalDevice physicalDevice,
                              uint32_t queueFamilyIndex,
                              VkRenderPass renderPass,
                              VkExtent2D extent,
+                             VkFormat outputFormat,
                              const std::string& shaderDir) {
   if (initialized_) {
     return;
@@ -1592,6 +1605,8 @@ void SkinPbrPass::Initialize(VkPhysicalDevice physicalDevice,
   graphicsQueue_ = graphicsQueue;
   queueFamilyIndex_ = queueFamilyIndex;
   extent_ = extent;
+  outputColorLevels_ = OutputColorLevelsForFormat(outputFormat);
+  elapsedSec_ = 0.0F;
 
   vertSpvPath_ = shaderDir + "/skin_pbr.vert.spv";
   fragSpvPath_ = shaderDir + "/skin_pbr.frag.spv";
@@ -1685,13 +1700,15 @@ void SkinPbrPass::Shutdown() {
   DestroyTransientCommandPool();
 
   initialized_ = false;
+  elapsedSec_ = 0.0F;
   device_ = VK_NULL_HANDLE;
   physicalDevice_ = VK_NULL_HANDLE;
   graphicsQueue_ = VK_NULL_HANDLE;
 }
 
-void SkinPbrPass::RecreateForRenderPass(VkRenderPass renderPass, VkExtent2D extent) {
+void SkinPbrPass::RecreateForRenderPass(VkRenderPass renderPass, VkExtent2D extent, VkFormat outputFormat) {
   extent_ = extent;
+  outputColorLevels_ = OutputColorLevelsForFormat(outputFormat);
   if (!initialized_) {
     return;
   }

@@ -51,6 +51,19 @@ float saturate(float x) {
   return clamp(x, 0.0, 1.0);
 }
 
+float InterleavedGradientNoise(vec2 pixelPos) {
+  float x = dot(pixelPos, vec2(0.06711056, 0.00583715));
+  return fract(52.9829189 * fract(x));
+}
+
+vec3 LinearToSrgb(vec3 linearColor) {
+  vec3 clamped = max(linearColor, vec3(0.0));
+  vec3 low = clamped * 12.92;
+  vec3 high = 1.055 * pow(clamped, vec3(1.0 / 2.4)) - 0.055;
+  bvec3 useLow = lessThanEqual(clamped, vec3(0.0031308));
+  return mix(high, low, useLow);
+}
+
 vec2 DirToLatLongUv(vec3 dir) {
   dir = normalize(dir);
   float u = atan(dir.z, dir.x) / (2.0 * kPi) + 0.5;
@@ -264,14 +277,22 @@ void main() {
   vec3 Fv = F0 + (1.0 - F0) * pow(1.0 - NdotV, 5.0);
   vec3 kd = (1.0 - Fv) * (1.0 - metallic);
   vec3 diffuseDir = normalize(mix(normalize(vWorldNormal), N, 0.35));
-  vec3 diffuseIbl = SampleIblDiffuse(diffuseDir) * albedo * kd;
+  float hemiT = clamp(diffuseDir.y * 0.5 + 0.5, 0.0, 1.0);
+  hemiT = smoothstep(0.0, 1.0, pow(hemiT, 0.90));
+  vec3 hemiGround = vec3(0.18, 0.17, 0.16);
+  vec3 hemiHorizon = vec3(0.50, 0.53, 0.58);
+  vec3 hemiSky = vec3(0.70, 0.76, 0.84);
+  float toHorizon = smoothstep(0.0, 0.62, hemiT);
+  float toSky = smoothstep(0.38, 1.0, hemiT);
+  vec3 hemiIrradiance = mix(hemiGround, hemiHorizon, toHorizon);
+  hemiIrradiance = mix(hemiIrradiance, hemiSky, toSky);
+  vec3 diffuseIbl = hemiIrradiance * albedo * kd;
 
-  float iblRoughness = max(roughness, 0.22);
+  float iblRoughness = max(roughness, 0.35);
   vec3 R = reflect(-V, N);
   vec3 Rrough = normalize(mix(R, N, iblRoughness * iblRoughness));
-  vec3 prefiltered = mix(SampleIblSpecular(R, iblRoughness),
-                         SampleIblSpecular(Rrough, iblRoughness),
-                         iblRoughness * 0.85);
+  vec3 prefiltered = SampleIblSpecular(Rrough, iblRoughness);
+  prefiltered = prefiltered / (prefiltered + vec3(1.0));
   vec2 envBrdf = EnvBrdfApprox(iblRoughness, NdotV);
   vec3 specularIbl = prefiltered * (F0 * envBrdf.x + envBrdf.y);
   specularIbl *= step(0.5, enableSpecularIbl);
@@ -280,12 +301,23 @@ void main() {
   vec3 ambient = (diffuseIbl * ao + specularIbl * specAo) * iblStrength + albedo * ambientStrength * ao;
 
   vec3 color = litAccum + ambient + emissive;
-  color = vec3(1.0) - exp(-color * exposure);
-  color = pow(color, vec3(1.0 / 2.2));
-
   if (vMrAlpha.z > 0.0 && alpha < vMrAlpha.z) {
     discard;
   }
+  color = vec3(1.0) - exp(-color * exposure);
+  color = LinearToSrgb(color);
+
+  float outputLevels = max(uFrame.debugFlags.w, 16.0);
+  float effectiveLevels = min(outputLevels, 255.0);
+  float temporalPhase = fract(uFrame.debugFlags.z * 23.0);
+  vec2 ditherBase = gl_FragCoord.xy + vec2(temporalPhase * 173.0, temporalPhase * 97.0);
+  vec3 ditherNoise = vec3(InterleavedGradientNoise(ditherBase),
+                          InterleavedGradientNoise(ditherBase + vec2(19.19, 73.42)),
+                          InterleavedGradientNoise(ditherBase + vec2(47.77, 11.13))) - 0.5;
+  float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
+  float ditherStrength = mix(2.10, 1.20, clamp(luma, 0.0, 1.0));
+  color += ditherNoise * (ditherStrength / effectiveLevels);
+  color = clamp(color, vec3(0.0), vec3(1.0));
 
   outColor = vec4(color, alpha);
 }

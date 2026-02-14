@@ -42,6 +42,7 @@ void VulkanRenderer::Initialize(IWindow& window, bool enableValidation) {
                           device_.GraphicsQueueFamily(),
                           renderPass_,
                           swapchain_.Extent(),
+                          swapchain_.ImageFormat(),
                           "build/shaders");
 
   initialized_ = true;
@@ -297,7 +298,7 @@ void VulkanRenderer::RecreateSwapchain() {
   CreateRenderPass();
   CreateDepthResources();
   CreateFramebuffers();
-  skinPbrPass_.RecreateForRenderPass(renderPass_, swapchain_.Extent());
+  skinPbrPass_.RecreateForRenderPass(renderPass_, swapchain_.Extent(), swapchain_.ImageFormat());
 
   if (!commandBuffers_.empty()) {
     commandBuffers_.clear();

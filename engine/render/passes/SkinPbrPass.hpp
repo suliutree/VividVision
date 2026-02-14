@@ -22,10 +22,11 @@ class SkinPbrPass {
                   uint32_t queueFamilyIndex,
                   VkRenderPass renderPass,
                   VkExtent2D extent,
+                  VkFormat outputFormat,
                   const std::string& shaderDir);
   void Shutdown();
 
-  void RecreateForRenderPass(VkRenderPass renderPass, VkExtent2D extent);
+  void RecreateForRenderPass(VkRenderPass renderPass, VkExtent2D extent, VkFormat outputFormat);
 
   void PrepareFrame(uint32_t frameIndex, const RenderScene& scene, const FrameContext& frameContext);
   void RenderShadow(VkCommandBuffer cmd, uint32_t frameIndex, const RenderScene& scene);
@@ -61,8 +62,8 @@ class SkinPbrPass {
     Mat4 proj{1.0F};
     Mat4 lightViewProj{1.0F};
     Vec4 cameraPos{0.0F, 0.0F, 3.0F, 1.0F};
-    Vec4 lightMeta{1.0F, 0.08F, 1.25F, 1.00F};  // x=lightCount, y=ambientStrength, z=exposure, w=iblStrength
-    Vec4 debugFlags{1.0F, 1.0F, 0.0F, 0.0F};    // x=enableNormalMap, y=enableSpecularIbl
+    Vec4 lightMeta{1.0F, 0.12F, 1.18F, 1.22F};  // x=lightCount, y=ambientStrength, z=exposure, w=iblStrength
+    Vec4 debugFlags{1.0F, 1.0F, 0.0F, 255.0F};  // x=enableNormalMap, y=enableSpecularIbl, z=timeSec, w=outputColorLevels
     Vec4 shadowMeta{1.0F, 0.0008F, 0.92F, 1.5F};  // x=enabled, y=bias, z=strength, w=pcfRadiusTexel
   };
 
@@ -181,6 +182,9 @@ class SkinPbrPass {
   std::string vertSpvPath_;
   std::string fragSpvPath_;
   std::string shadowVertSpvPath_;
+
+  float outputColorLevels_ = 255.0F;
+  float elapsedSec_ = 0.0F;
 
   bool initialized_ = false;
 };
