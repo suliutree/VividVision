@@ -255,6 +255,12 @@ std::string NormalizeTextureUri(const std::string& uri) {
   return normalized;
 }
 
+std::string MakeTextureCacheKey(const std::string& normalizedUri, bool srgb) {
+  std::string key = normalizedUri;
+  key += srgb ? "|srgb" : "|linear";
+  return key;
+}
+
 std::string ToLowerAscii(std::string value) {
   std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
     return static_cast<char>(std::tolower(c));
@@ -335,7 +341,10 @@ TextureId AppendDecodedTexture(ImportContext& ctx,
   return id;
 }
 
-std::optional<TextureId> TryLoadEmbeddedTexture(ImportContext& ctx, const std::string& textureKey, bool srgb) {
+std::optional<TextureId> TryLoadEmbeddedTexture(ImportContext& ctx,
+                                                const std::string& textureKey,
+                                                const std::string& cacheKey,
+                                                bool srgb) {
   if (ctx.src == nullptr || ctx.src->mNumTextures == 0) {
     return std::nullopt;
   }
@@ -351,7 +360,7 @@ std::optional<TextureId> TryLoadEmbeddedTexture(ImportContext& ctx, const std::s
     if (!decoded.has_value()) {
       return std::nullopt;
     }
-    return AppendDecodedTexture(ctx, textureKey, textureKey, *decoded, srgb);
+    return AppendDecodedTexture(ctx, cacheKey, textureKey, *decoded, srgb);
   }
 
   if (embedded->mWidth == 0 || embedded->mHeight == 0) {
@@ -376,7 +385,7 @@ std::optional<TextureId> TryLoadEmbeddedTexture(ImportContext& ctx, const std::s
 
   ctx.dst.textures.push_back(std::move(tex));
   const TextureId id = static_cast<TextureId>(ctx.dst.textures.size() - 1);
-  ctx.textureMap[textureKey] = id;
+  ctx.textureMap[cacheKey] = id;
   return id;
 }
 
@@ -389,29 +398,30 @@ TextureId GetOrCreateTexture(ImportContext& ctx, const std::string& uri, bool sr
   if (normalizedUri.empty()) {
     return fallback;
   }
+  const std::string cacheKey = MakeTextureCacheKey(normalizedUri, srgb);
 
-  const auto found = ctx.textureMap.find(normalizedUri);
+  const auto found = ctx.textureMap.find(cacheKey);
   if (found != ctx.textureMap.end()) {
     return found->second;
   }
 
-  if (const auto embeddedId = TryLoadEmbeddedTexture(ctx, normalizedUri, srgb); embeddedId.has_value()) {
+  if (const auto embeddedId = TryLoadEmbeddedTexture(ctx, normalizedUri, cacheKey, srgb); embeddedId.has_value()) {
     return *embeddedId;
   }
 
   const auto texturePath = ResolveTexturePath(ctx, normalizedUri);
   if (!texturePath.has_value()) {
-    ctx.textureMap[normalizedUri] = fallback;
+    ctx.textureMap[cacheKey] = fallback;
     return fallback;
   }
 
   const auto decoded = LoadImageRgba8(texturePath->string());
   if (!decoded.has_value()) {
-    ctx.textureMap[normalizedUri] = fallback;
+    ctx.textureMap[cacheKey] = fallback;
     return fallback;
   }
 
-  return AppendDecodedTexture(ctx, normalizedUri, texturePath->string(), *decoded, srgb);
+  return AppendDecodedTexture(ctx, cacheKey, texturePath->string(), *decoded, srgb);
 }
 
 std::string GetFirstTexturePath(const aiMaterial* mat, std::initializer_list<aiTextureType> types) {
@@ -630,6 +640,8 @@ void FinalizeWorldTransforms(Scene& scene) {
 void ImportMeshesAndSkeletons(ImportContext& ctx, uint32_t maxBoneInfluence) {
   Skeleton skeleton;
   skeleton.name = "FBXSkeleton";
+  std::vector<SkinId> createdSkinIds;
+  createdSkinIds.reserve(ctx.src->mNumMeshes);
 
   const glm::mat3 normalXform = glm::transpose(glm::inverse(glm::mat3(ctx.conv.c)));
 
@@ -771,10 +783,11 @@ void ImportMeshesAndSkeletons(ImportContext& ctx, uint32_t maxBoneInfluence) {
     if (srcMesh->mNumBones > 0) {
       Skin skin;
       skin.mesh = dstMeshId;
-      skin.skeleton = 0;
+      const SkinId skinId = static_cast<SkinId>(ctx.dst.skins.size());
       ctx.dst.skins.push_back(std::move(skin));
+      createdSkinIds.push_back(skinId);
       if (assignedNode != kInvalidNodeId) {
-        ctx.dst.nodes[assignedNode].skin = static_cast<SkinId>(ctx.dst.skins.size() - 1);
+        ctx.dst.nodes[assignedNode].skin = skinId;
       }
     }
   }
@@ -805,10 +818,16 @@ void ImportMeshesAndSkeletons(ImportContext& ctx, uint32_t maxBoneInfluence) {
       }
     }
 
+    const SkeletonId skeletonId = static_cast<SkeletonId>(ctx.dst.skeletons.size());
     ctx.dst.skeletons.push_back(std::move(skeleton));
-    for (auto& skin : ctx.dst.skins) {
-      skin.skeleton = 0;
-      skin.palette.resize(ctx.dst.skeletons[0].bones.size(), Mat4(1.0F));
+    const size_t paletteSize = ctx.dst.skeletons[skeletonId].bones.size();
+    for (const SkinId skinId : createdSkinIds) {
+      if (skinId >= ctx.dst.skins.size()) {
+        continue;
+      }
+      Skin& skin = ctx.dst.skins[skinId];
+      skin.skeleton = skeletonId;
+      skin.palette.resize(paletteSize, Mat4(1.0F));
     }
   }
 }

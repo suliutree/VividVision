@@ -1,7 +1,9 @@
 #include "render/animation/Animator.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <cmath>
+#include <functional>
 
 namespace vv {
 namespace {
@@ -129,16 +131,50 @@ void Animator::Update(float dtSec) {
   const Skeleton& skeleton = scene_->skeletons[skeletonId_];
   std::vector<Mat4> local(skeleton.bones.size(), Mat4(1.0F));
   std::vector<Mat4> global(skeleton.bones.size(), Mat4(1.0F));
+  std::vector<Mat4> nodeGlobal(scene_->nodes.size(), Mat4(1.0F));
+  std::vector<uint8_t> nodeGlobalState(scene_->nodes.size(), 0);
+
+  std::function<Mat4(NodeId)> sampleNodeGlobal = [&](NodeId nodeId) -> Mat4 {
+    if (nodeId == kInvalidNodeId || nodeId >= scene_->nodes.size()) {
+      return Mat4(1.0F);
+    }
+
+    const uint8_t state = nodeGlobalState[nodeId];
+    if (state == 2) {
+      return nodeGlobal[nodeId];
+    }
+    if (state == 1) {
+      return Mat4(1.0F);
+    }
+
+    nodeGlobalState[nodeId] = 1;
+    const Node& node = scene_->nodes[nodeId];
+    const Mat4 sampledLocal = SampleNodeTransform(clip, nodeId, sampleTime).ToMat4();
+    if (node.parent == kInvalidNodeId) {
+      nodeGlobal[nodeId] = sampledLocal;
+    } else {
+      nodeGlobal[nodeId] = sampleNodeGlobal(node.parent) * sampledLocal;
+    }
+    nodeGlobalState[nodeId] = 2;
+    return nodeGlobal[nodeId];
+  };
 
   for (size_t i = 0; i < skeleton.bones.size(); ++i) {
     const NodeId nodeId = skeleton.bones[i].node;
+    if (nodeId == kInvalidNodeId || nodeId >= scene_->nodes.size()) {
+      local[i] = Mat4(1.0F);
+      continue;
+    }
     local[i] = SampleNodeTransform(clip, nodeId, sampleTime).ToMat4();
   }
 
   for (size_t i = 0; i < skeleton.bones.size(); ++i) {
     const int32_t parent = skeleton.bones[i].parentBone;
     if (parent < 0) {
-      global[i] = local[i];
+      const NodeId nodeId = skeleton.bones[i].node;
+      const NodeId parentNode =
+          (nodeId != kInvalidNodeId && nodeId < scene_->nodes.size()) ? scene_->nodes[nodeId].parent : kInvalidNodeId;
+      global[i] = sampleNodeGlobal(parentNode) * local[i];
     } else {
       global[i] = global[static_cast<size_t>(parent)] * local[i];
     }
