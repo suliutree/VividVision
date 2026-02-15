@@ -30,6 +30,13 @@ cmake --build build -j
 ./build/engine/vividvision_demo /absolute/path/to/model.fbx
 ```
 
+## FBX Loop Previews
+The following previews are captured from `vividvision_demo` and loop automatically on GitHub:
+
+| Hip_Hop_Dancing.fbx | Taunt.fbx |
+|---|---|
+| ![Hip_Hop_Dancing Loop](assets/previews/hip_hop_dancing.gif) | ![Taunt Loop](assets/previews/taunt.gif) |
+
 ## Controls
 - `Space`: pause/resume animation
 - `N` / `P`: next/previous clip
